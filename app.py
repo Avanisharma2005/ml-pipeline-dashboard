@@ -18,13 +18,93 @@ from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, f1_sco
 st.set_page_config(page_title="Auto-ML Pipeline Pro", layout="wide")
 
 st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: #f0f2f6; border-radius: 4px 4px 0px 0px; gap: 1px; padding: 10px; }
-    .stTabs [aria-selected="true"] { background-color: #4e79a7; color: white; }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+/* --- Global Background --- */
+.main {
+    background-color: #f8fafc;
+}
+
+/* --- Title Styling --- */
+h1 {
+    color: #1f2937;
+    font-weight: 700;
+}
+
+/* --- Tabs Styling --- */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 20px;
+}
+
+.stTabs [data-baseweb="tab"] {
+    height: 50px;
+    background-color: #e5e7eb;
+    border-radius: 10px 10px 0 0;
+    padding: 10px 18px;
+    font-weight: 600;
+    color: #374151;
+    transition: all 0.2s ease;
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+    background-color: #d1d5db;
+}
+
+.stTabs [aria-selected="true"] {
+    background-color: #4e79a7;
+    color: white;
+}
+
+/* --- Cards (Containers) --- */
+.block-container {
+    padding-top: 2rem;
+}
+
+section[data-testid="stVerticalBlock"] > div {
+    background: white;
+    padding: 18px;
+    border-radius: 12px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.05);
+    margin-bottom: 15px;
+}
+
+/* --- Buttons --- */
+.stButton > button {
+    background-color: #4e79a7;
+    color: white;
+    border-radius: 8px;
+    height: 42px;
+    font-weight: 600;
+    border: none;
+}
+
+.stButton > button:hover {
+    background-color: #3b5f87;
+}
+
+/* --- Inputs --- */
+.stSelectbox, .stMultiSelect, .stTextInput, .stNumberInput {
+    border-radius: 8px;
+}
+
+/* --- Sidebar --- */
+.css-1d391kg {
+    background-color: #f1f5f9;
+}
+
+/* --- Metrics --- */
+[data-testid="metric-container"] {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+/* --- Smooth UI --- */
+* {
+    transition: all 0.15s ease-in-out;
+}
+</style>
+""", unsafe_allow_html=True)
 
 st.title("🚀 Advanced ML Pipeline Dashboard")
 
