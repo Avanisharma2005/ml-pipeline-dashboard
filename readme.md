@@ -19,3 +19,6 @@ Banknote Authentication Dataset (UCI)
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
+
+## 🌐 Live Demo
+https://ml-pipeline-dashboard-bank.streamlit.app/
