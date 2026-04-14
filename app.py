@@ -224,8 +224,13 @@ with tabs[3]:
         # Encoding categorical for math
         for col in X.select_dtypes(include=['object']).columns:
             X[col] = LabelEncoder().fit_transform(X[col].astype(str))
-        if y.dtype == 'object':
-            y = LabelEncoder().fit_transform(y.astype(str))
+        # Ensure target is discrete for classification
+        if problem_type == "Classification":
+            y = y.astype(int)
+            
+            # If still object (edge case)
+            if y.dtype == 'object':
+                y = LabelEncoder().fit_transform(y.astype(str))
 
         method = st.multiselect("Selection Methods", ["Variance Threshold", "Correlation", "Information Gain"])
         
