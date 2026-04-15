@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split, cross_val_score, GridSearc
 from sklearn.svm import SVC, SVR
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, f1_score
-
+from sklearn.metrics import silhouette_score
 # --- Page Config ---
 st.set_page_config(page_title="Auto-ML Pipeline Pro", layout="wide")
 
@@ -217,99 +217,351 @@ with tabs[2]:
 with tabs[3]:
     if st.session_state.cleaned_data is not None:
         df_fs = st.session_state.cleaned_data.copy()
-        # Separate features and target
+
+        # --- Separate features and target ---
         X = df_fs.drop(columns=[target_col])
         y = df_fs[target_col]
-        
-        # Encoding categorical for math
+
+        # --- Encode categorical features ---
         for col in X.select_dtypes(include=['object']).columns:
             X[col] = LabelEncoder().fit_transform(X[col].astype(str))
-        # Ensure target is discrete for classification
+
+        # --- Encode target properly ---
         if problem_type == "Classification":
-            y = y.astype(int)
-            
-            # If still object (edge case)
             if y.dtype == 'object':
                 y = LabelEncoder().fit_transform(y.astype(str))
 
-        method = st.multiselect("Selection Methods", ["Variance Threshold", "Correlation", "Information Gain"])
-        
-        selected_feats = list(X.columns)
-        
+        # --- Feature Selection Methods ---
+        method = st.multiselect(
+            "Selection Methods",
+            ["Variance Threshold", "Correlation", "Information Gain"]
+        )
+
+        selected_features = list(X.columns)
+
+        # -------------------------------
+        # 1. Variance Threshold
+        # -------------------------------
         if "Variance Threshold" in method:
-            vt = VarianceThreshold(threshold=0.1)
+            threshold = st.slider("Variance Threshold", 0.0, 1.0, 0.1)
+            vt = VarianceThreshold(threshold=threshold)
             vt.fit(X)
-            selected_feats = [f for f, s in zip(selected_feats, vt.get_support()) if s]
-            
-        st.write("Selected Features:", selected_feats)
-        st.session_state.final_features = selected_feats
-        st.session_state.X = X[selected_feats]
+
+            selected_features = [
+                f for f, s in zip(X.columns, vt.get_support()) if s
+            ]
+
+            X = X[selected_features]
+
+        # -------------------------------
+        # 2. Correlation Filtering
+        # -------------------------------
+        if "Correlation" in method:
+            corr_threshold = st.slider("Correlation Threshold", 0.7, 0.99, 0.9)
+
+            corr_matrix = X.corr().abs()
+            upper = corr_matrix.where(
+                np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+            )
+
+            to_drop = [
+                column for column in upper.columns if any(upper[column] > corr_threshold)
+            ]
+
+            X = X.drop(columns=to_drop)
+            selected_features = list(X.columns)
+
+            st.write("Dropped due to high correlation:", to_drop)
+
+        # -------------------------------
+        # 3. Information Gain (Mutual Info)
+        # -------------------------------
+        if "Information Gain" in method:
+            k = st.slider("Top K Features (Information Gain)", 1, len(X.columns), min(5, len(X.columns)))
+
+            if problem_type == "Classification":
+                scores = mutual_info_classif(X, y)
+            else:
+                scores = mutual_info_regression(X, y)
+
+            mi_df = pd.DataFrame({
+                "Feature": X.columns,
+                "Score": scores
+            }).sort_values(by="Score", ascending=False)
+
+            top_features = mi_df.head(k)["Feature"].tolist()
+
+            X = X[top_features]
+            selected_features = top_features
+
+            st.write("Top Features based on Information Gain:")
+            st.dataframe(mi_df)
+
+        # -------------------------------
+        # FINAL OUTPUT
+        # -------------------------------
+        st.write("### Final Selected Features:", selected_features)
+
+        # Save to session
+        st.session_state.final_features = selected_features
+        st.session_state.X = X
         st.session_state.y = y
+# --- Tab 5: Training & Metrics ---
+
 
 # --- Tab 5: Training & Metrics ---
 with tabs[4]:
     if 'X' in st.session_state:
         st.subheader("Data Split")
+
         test_size = st.slider("Test Size (%)", 10, 50, 20)
-        X_train, X_test, y_train, y_test = train_test_split(st.session_state.X, st.session_state.y, test_size=test_size/100, random_state=42)
-        
+        X_train, X_test, y_train, y_test = train_test_split(
+            st.session_state.X, st.session_state.y,
+            test_size=test_size/100, random_state=42
+        )
+
         st.subheader("Model Selection")
+
         if problem_type == "Classification":
             model_name = st.selectbox("Model", ["Random Forest", "SVM", "Logistic Regression", "K-Means"])
         else:
             model_name = st.selectbox("Model", ["Random Forest", "SVR", "Linear Regression"])
 
         k_val = st.number_input("K-Fold Cross Validation (K)", min_value=2, max_value=10, value=5)
-        
-        if st.button("Train Model"):
-            if model_name == "Random Forest":
-                model = RandomForestClassifier() if problem_type == "Classification" else RandomForestRegressor()
-            elif model_name == "SVM" or model_name == "SVR":
-                kernel = st.selectbox("Kernel", ["linear", "rbf", "poly"])
-                model = SVC(kernel=kernel) if problem_type == "Classification" else SVR(kernel=kernel)
-            elif model_name == "Linear Regression" or model_name == "Logistic Regression":
-                model = LogisticRegression() if problem_type == "Classification" else LinearRegression()
-            
-            # Train
-            model.fit(X_train, y_train)
-            cv_scores = cross_val_score(model, X_train, y_train, cv=k_val)
-            
-            # Metrics
-            train_score = model.score(X_train, y_train)
-            test_score = model.score(X_test, y_test)
-            
-            st.metric("Train Accuracy/R2", f"{train_score:.4f}")
-            st.metric("Test Accuracy/R2", f"{test_score:.4f}")
-            st.write(f"CV Scores (K={k_val}):", cv_scores.mean())
-            
-            if train_score > test_score + 0.15:
-                st.error("Warning: Potential Overfitting detected!")
-            elif train_score < 0.5:
-                st.warning("Warning: Potential Underfitting detected!")
-            else:
-                st.success("Model fit seems stable.")
-            
-            st.session_state.current_model = model
 
+        if st.button("Train Model"):
+
+            # -------------------------
+            # K-MEANS (SPECIAL CASE)
+            # -------------------------
+            if model_name == "K-Means":
+                n_clusters = st.slider("Number of Clusters (K)", 2, 10, 3)
+
+                model = KMeans(n_clusters=n_clusters, random_state=42)
+                clusters = model.fit_predict(st.session_state.X)
+
+                # Evaluate clustering
+                sil_score = silhouette_score(st.session_state.X, clusters)
+
+                st.metric("Silhouette Score", f"{sil_score:.4f}")
+
+                # Visualization (2D PCA)
+                pca = PCA(n_components=2)
+                reduced = pca.fit_transform(st.session_state.X)
+
+                fig = px.scatter(
+                    x=reduced[:, 0],
+                    y=reduced[:, 1],
+                    color=clusters.astype(str),
+                    title="K-Means Clustering (PCA Projection)"
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+
+                st.info("K-Means is unsupervised → no accuracy or R².")
+
+                st.session_state.current_model = model
+
+            # -------------------------
+            # SUPERVISED MODELS
+            # -------------------------
+            else:
+                if model_name == "Random Forest":
+                    model = RandomForestClassifier() if problem_type == "Classification" else RandomForestRegressor()
+
+                elif model_name == "SVM":
+                    kernel = st.selectbox("Kernel", ["linear", "rbf", "poly"])
+                    model = SVC(kernel=kernel) if problem_type == "Classification" else SVR(kernel=kernel)
+
+                elif model_name == "Logistic Regression":
+                    model = LogisticRegression(max_iter=1000)
+
+                elif model_name == "Linear Regression":
+                    model = LinearRegression()
+
+                # Train model
+                model.fit(X_train, y_train)
+
+                # Cross-validation
+                cv_scores = cross_val_score(model, X_train, y_train, cv=k_val)
+
+                # Predictions
+                y_pred_train = model.predict(X_train)
+                y_pred_test = model.predict(X_test)
+
+                # Metrics
+                if problem_type == "Classification":
+                    train_score = accuracy_score(y_train, y_pred_train)
+                    test_score = accuracy_score(y_test, y_pred_test)
+                    f1 = f1_score(y_test, y_pred_test, average='weighted')
+
+                    st.metric("Train Accuracy", f"{train_score:.4f}")
+                    st.metric("Test Accuracy", f"{test_score:.4f}")
+                    st.metric("F1 Score", f"{f1:.4f}")
+
+                else:
+                    train_score = r2_score(y_train, y_pred_train)
+                    test_score = r2_score(y_test, y_pred_test)
+                    rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
+
+                    st.metric("Train R²", f"{train_score:.4f}")
+                    st.metric("Test R²", f"{test_score:.4f}")
+                    st.metric("RMSE", f"{rmse:.4f}")
+
+                st.write(f"Cross Validation Score (K={k_val}):", cv_scores.mean())
+
+                # Overfitting check
+                if train_score > test_score + 0.15:
+                    st.error("⚠️ Potential Overfitting detected!")
+                elif train_score < 0.5:
+                    st.warning("⚠️ Potential Underfitting detected!")
+                else:
+                    st.success("✅ Model fit looks good.")
+
+                st.session_state.current_model = model
 # --- Tab 6: Hyperparameter Tuning ---
+# --- Tab 6: Hyperparameter Tuning ---
+from sklearn.metrics import make_scorer, accuracy_score, r2_score
+
 with tabs[5]:
     if 'current_model' in st.session_state:
-        st.subheader("Grid Search Optimization")
-        if isinstance(st.session_state.current_model, (RandomForestClassifier, RandomForestRegressor)):
+
+        st.subheader("Hyperparameter Tuning (Grid Search)")
+
+        # Use already prepared data
+        X = st.session_state.X
+        y = st.session_state.y
+
+        # Train-test split (avoid leakage)
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+
+        model = st.session_state.current_model
+
+        # -------------------------
+        # DEFINE PARAM GRIDS
+        # -------------------------
+        param_grid = None
+
+        if isinstance(model, RandomForestClassifier):
             param_grid = {
-                'n_estimators': [50, 100],
-                'max_depth': [None, 10, 20]
+                'n_estimators': [50, 100, 200],
+                'max_depth': [None, 10, 20],
+                'min_samples_split': [2, 5]
             }
-            search = GridSearchCV(st.session_state.current_model, param_grid, cv=3)
+
+        elif isinstance(model, RandomForestRegressor):
+            param_grid = {
+                'n_estimators': [50, 100, 200],
+                'max_depth': [None, 10, 20],
+                'min_samples_split': [2, 5]
+            }
+
+        elif isinstance(model, SVC):
+            param_grid = {
+                'C': [0.1, 1, 10],
+                'kernel': ['linear', 'rbf'],
+                'gamma': ['scale', 'auto']
+            }
+
+        elif isinstance(model, SVR):
+            param_grid = {
+                'C': [0.1, 1, 10],
+                'kernel': ['linear', 'rbf'],
+                'epsilon': [0.1, 0.2]
+            }
+
+        elif isinstance(model, LogisticRegression):
+            param_grid = {
+                'C': [0.1, 1, 10],
+                'solver': ['lbfgs', 'liblinear']
+            }
+
+        elif isinstance(model, LinearRegression):
+            st.info("Linear Regression has no major hyperparameters to tune.")
+            param_grid = None
+
+        elif isinstance(model, KMeans):
+            st.info("K-Means tuning based on number of clusters.")
+            
+            k_range = st.slider("Select range of K", 2, 10, (2, 6))
+            scores = []
+
+            for k in range(k_range[0], k_range[1] + 1):
+                km = KMeans(n_clusters=k, random_state=42)
+                labels = km.fit_predict(X)
+                score = silhouette_score(X, labels)
+                scores.append(score)
+
+            # Plot elbow-like curve
+            fig = px.line(
+                x=list(range(k_range[0], k_range[1] + 1)),
+                y=scores,
+                markers=True,
+                title="K vs Silhouette Score"
+            )
+            st.plotly_chart(fig)
+
+            best_k = list(range(k_range[0], k_range[1] + 1))[np.argmax(scores)]
+            st.success(f"Best K (clusters): {best_k}")
+
+            st.stop()
+
+        # -------------------------
+        # RUN GRID SEARCH
+        # -------------------------
+        if param_grid is not None:
+
+            # Select scoring metric
+            if problem_type == "Classification":
+                scoring = 'accuracy'
+            else:
+                scoring = 'r2'
+
             if st.button("Run Hyperparameter Tuning"):
-                with st.spinner("Tuning..."):
-                    search.fit(st.session_state.X, st.session_state.y)
-                    st.write("Best Params:", search.best_params_)
-                    st.write("Best Score:", search.best_score_)
-                    
-                    # Performance Effect visualization
-                    results_df = pd.DataFrame(search.cv_results_)
-                    fig_tune = px.line(results_df, y='mean_test_score', title="Tuning Effect on Performance")
-                    st.plotly_chart(fig_tune)
+
+                with st.spinner("Running Grid Search..."):
+
+                    grid = GridSearchCV(
+                        estimator=model,
+                        param_grid=param_grid,
+                        cv=3,
+                        scoring=scoring,
+                        n_jobs=-1
+                    )
+
+                    grid.fit(X_train, y_train)
+
+                    best_model = grid.best_estimator_
+
+                    # Evaluate best model
+                    y_pred = best_model.predict(X_test)
+
+                    if problem_type == "Classification":
+                        score = accuracy_score(y_test, y_pred)
+                        st.metric("Best Test Accuracy", f"{score:.4f}")
+                    else:
+                        score = r2_score(y_test, y_pred)
+                        st.metric("Best Test R²", f"{score:.4f}")
+
+                    st.write("### Best Parameters")
+                    st.json(grid.best_params_)
+
+                    st.write("### Best CV Score")
+                    st.write(grid.best_score_)
+
+                    # Visualization
+                    results_df = pd.DataFrame(grid.cv_results_)
+                    fig = px.line(
+                        results_df,
+                        y="mean_test_score",
+                        title="Hyperparameter Tuning Performance"
+                    )
+                    st.plotly_chart(fig)
+
+                    # Save tuned model
+                    st.session_state.current_model = best_model
+
     else:
-        st.info("Please train a model in the previous tab first.")
+        st.info("Please train a model first in the previous tab.")
