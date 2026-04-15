@@ -121,7 +121,8 @@ problem_type = st.sidebar.selectbox("Select Problem Type", ["Classification", "R
 # --- Main Tabs ---
 tabs = st.tabs([
     "📂 Data Input", "📊 EDA", "🧹 Cleaning & Engineering", 
-    "🎯 Feature Selection", "🤖 Model Selection & Training", "⚙️ Hyperparameter Tuning"
+    "🎯 Feature Selection", "🤖 Model Selection & Training", 
+    "⚙️ Hyperparameter Tuning", "🧪 Model Testing"
 ])
 
 # --- Tab 1: Data Input & PCA ---
@@ -565,3 +566,44 @@ with tabs[5]:
 
     else:
         st.info("Please train a model first in the previous tab.")
+# --- Tab 7: Model Testing / Prediction ---
+with tabs[6]:
+    st.subheader("Test Your Model on New Data")
+
+    if 'current_model' not in st.session_state or 'X' not in st.session_state:
+        st.warning("Please train a model first.")
+    else:
+        model = st.session_state.current_model
+        feature_names = st.session_state.X.columns.tolist()
+
+        st.write("### Enter Feature Values")
+
+        user_input = {}
+
+        # Create input fields dynamically
+        for feature in feature_names:
+            user_input[feature] = st.number_input(f"{feature}", value=0.0)
+
+        input_df = pd.DataFrame([user_input])
+
+        st.write("### Input Data")
+        st.dataframe(input_df)
+
+        if st.button("Predict"):
+
+            try:
+                prediction = model.predict(input_df)[0]
+
+                # --------------------------
+                # Handle Output
+                # --------------------------
+                if prediction in [0, 1]:
+                    if prediction == 1:
+                        st.success("✅ Prediction: Genuine Banknote")
+                    else:
+                        st.error("❌ Prediction: Fake Banknote")
+                else:
+                    st.info(f"Prediction Output: {prediction}")
+
+            except Exception as e:
+                st.error(f"Error during prediction: {e}")
